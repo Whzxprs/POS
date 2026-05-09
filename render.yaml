@@ -1,0 +1,32 @@
+services:
+  # BACKEND SERVICE (Node.js + WebSockets)
+  - type: web
+    name: pos-backend
+    env: node
+    region: ohio
+    plan: starter # Puede ser 'free' para pruebas
+    rootDir: backend
+    buildCommand: npm install && npx tsc
+    startCommand: node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_URL
+        value: https://pos-frontend-app.onrender.com # Placeholder, se actualizará tras el deploy
+
+  # FRONTEND SERVICE (Next.js)
+  - type: web
+    name: pos-frontend
+    env: node
+    region: ohio
+    plan: starter # Puede ser 'free' para pruebas
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    envVars:
+      - key: NEXT_PUBLIC_SOCKET_URL
+        value: https://pos-backend.onrender.com # URL del servicio backend de arriba
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://tu-proyecto-id.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: tu-anon-key-de-supabase
