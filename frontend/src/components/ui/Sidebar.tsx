@@ -12,8 +12,11 @@ import {
   Settings, 
   ChevronLeft, 
   ChevronRight,
-  ClipboardList
+  ClipboardList,
+  LogOut,
+  Map as MapIcon
 } from 'lucide-react';
+import { useAuth } from '../../context/AuthContext';
 
 interface SidebarProps {
   collapsed: boolean;
@@ -22,15 +25,20 @@ interface SidebarProps {
 
 export const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   const navItems = [
-    { href: '/', label: 'Piso / Mesas', icon: LayoutDashboard },
-    { href: '/cocina', label: 'KDS Cocina', icon: UtensilsCrossed },
-    { href: '/barra', label: 'KDS Barra', icon: Wine },
-    { href: '/tareas', label: 'Tareas / Kanban', icon: ClipboardList },
-    { href: '/staff', label: 'Personal', icon: Users },
-    { href: '/config', label: 'Configuración', icon: Settings },
+    { href: '/', label: 'Piso / Mesas', icon: LayoutDashboard, roles: ['manager', 'capitan', 'mesero'] },
+    { href: '/cocina', label: 'KDS Cocina', icon: UtensilsCrossed, roles: ['manager', 'cocina'] },
+    { href: '/barra', label: 'KDS Barra', icon: Wine, roles: ['manager', 'barra'] },
+    { href: '/tareas', label: 'Tareas / Kanban', icon: ClipboardList, roles: ['manager', 'capitan'] },
+    { href: '/editor', label: 'Mapa / Editor', icon: MapIcon, roles: ['manager', 'capitan'] },
+    { href: '/staff', label: 'Personal', icon: Users, roles: ['manager'] },
+    { href: '/config', label: 'Configuración', icon: Settings, roles: ['manager'] },
   ];
+
+  // Filtramos por rol
+  const allowedItems = navItems.filter(item => user && item.roles.includes(user.role));
 
   return (
     <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''}`}>
@@ -46,7 +54,7 @@ export const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
       </div>
 
       <nav className={styles.nav}>
-        {navItems.map((item) => {
+        {allowedItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;
           return (
@@ -63,11 +71,16 @@ export const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
       </nav>
 
       <div className={styles.userSection}>
-        <div className={styles.avatar}>AM</div>
+        <div className={styles.avatar}>{user?.name.substring(0,2).toUpperCase()}</div>
         <div className={styles.userInfo}>
-          <span className={styles.userName}>Area Manager</span>
-          <span className={styles.userRole}>Turno Matutino</span>
+          <span className={styles.userName}>{user?.name}</span>
+          <span className={styles.userRole}>{user?.role.toUpperCase()}</span>
         </div>
+        {!collapsed && (
+          <button onClick={logout} style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }}>
+            <LogOut size={20} />
+          </button>
+        )}
       </div>
     </aside>
   );

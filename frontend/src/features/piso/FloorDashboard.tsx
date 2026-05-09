@@ -6,6 +6,7 @@ import { useSocket } from '../../hooks/useSocket';
 import { Clock, Users, Utensils, Wine, Clock4, AlertCircle, Receipt } from 'lucide-react';
 import { OrderBuilder } from './OrderBuilder';
 import { CheckoutModal } from './CheckoutModal';
+import { useAuth } from '../../context/AuthContext';
 
 // Mock Data Inicial
 const MOCK_RESERVATIONS = [
@@ -25,7 +26,8 @@ const MOCK_TABLES = [
     foodItems: 3, 
     drinkItems: 1, 
     timer: 15,
-    needsAttention: false 
+    needsAttention: false,
+    serverId: 'u3' 
   },
   { 
     id: 2, 
@@ -37,7 +39,8 @@ const MOCK_TABLES = [
     foodItems: 2, 
     drinkItems: 2, 
     timer: 2,
-    needsAttention: false
+    needsAttention: false,
+    serverId: 'u4'
   },
   { 
     id: 3, 
@@ -48,8 +51,9 @@ const MOCK_TABLES = [
     status: 'yellow', 
     foodItems: 5, 
     drinkItems: 4, 
-    timer: 35, // High timer
-    needsAttention: true // Flagged by AI/Manager
+    timer: 35, 
+    needsAttention: true,
+    serverId: 'u3'
   },
   { 
     id: 4, 
@@ -61,7 +65,8 @@ const MOCK_TABLES = [
     foodItems: 0, 
     drinkItems: 0, 
     timer: 45,
-    needsAttention: false
+    needsAttention: false,
+    serverId: 'u4'
   },
 ];
 
@@ -76,9 +81,11 @@ export interface TableData {
   drinkItems: number;
   timer: number;
   needsAttention: boolean;
+  serverId?: string;
 }
 
 export const FloorDashboard = () => {
+  const { user } = useAuth();
   const { isConnected } = useSocket('piso');
   const [currentTime, setCurrentTime] = useState<string>('00:00');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
@@ -93,11 +100,19 @@ export const FloorDashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
+  // Filtrar mesas si es mesero
+  const visibleTables = user?.role === 'mesero' 
+    ? MOCK_TABLES.filter(t => t.serverId === user.id)
+    : MOCK_TABLES;
+
+  const isManagerOrCapitan = user?.role === 'manager' || user?.role === 'capitan';
+
   return (
     <div className={styles.dashboard}>
-      {/* Top Widgets Section */}
-      <section className={styles.topSection}>
-        {/* Widget 1: Reloj de Apertura / Estado */}
+      {/* Top Widgets Section - Solo para Managers y Capitanes */}
+      {isManagerOrCapitan && (
+        <section className={styles.topSection}>
+          {/* Widget 1: Reloj de Apertura / Estado */}
         <div className={styles.widget}>
           <div className={styles.widgetHeader}>
             <span className={styles.widgetTitle}>Servicio Actual</span>
@@ -145,16 +160,19 @@ export const FloorDashboard = () => {
           </div>
         </div>
       </section>
+    )}
 
       {/* Floor Section: Mesas */}
       <section className={styles.floorSection}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className={styles.sectionTitle}>Planta Principal</h2>
+          <h2 className={styles.sectionTitle}>
+            {user?.role === 'mesero' ? `Mis Mesas (${user.name})` : 'Planta Principal'}
+          </h2>
           {/* Aquí irían filtros: Todas, Mis Mesas, Libres */}
         </div>
         
         <div className={styles.tableGrid}>
-          {MOCK_TABLES.map(table => (
+          {visibleTables.map(table => (
             <div 
               key={table.id} 
               className={styles.tableCard}
