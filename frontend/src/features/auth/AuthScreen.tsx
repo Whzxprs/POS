@@ -10,7 +10,7 @@ export const AuthScreen = () => {
   const [pin, setPin] = useState('');
   const [error, setError] = useState(false);
 
-  const handleKeyPress = (num: string) => {
+  const handleKeyPress = async (num: string) => {
     if (pin.length < 4) {
       const newPin = pin + num;
       setPin(newPin);
@@ -18,7 +18,7 @@ export const AuthScreen = () => {
       
       // Auto-submit al llegar a 4 dígitos
       if (newPin.length === 4) {
-        const success = login(newPin);
+        const success = await login(newPin);
         if (!success) {
           setError(true);
           setTimeout(() => {

@@ -14,7 +14,8 @@ import {
   ChevronRight,
   ClipboardList,
   LogOut,
-  Map as MapIcon
+  Map as MapIcon,
+  Trash2
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -33,8 +34,13 @@ export const Sidebar = ({ collapsed, onToggle }: SidebarProps) => {
     { href: '/barra', label: 'KDS Barra', icon: Wine, roles: ['manager', 'barra'] },
     { href: '/tareas', label: 'Tareas / Kanban', icon: ClipboardList, roles: ['manager', 'capitan'] },
     { href: '/editor', label: 'Mapa / Editor', icon: MapIcon, roles: ['manager', 'capitan'] },
-    { href: '/staff', label: 'Personal', icon: Users, roles: ['manager'] },
-    { href: '/config', label: 'Configuración', icon: Settings, roles: ['manager'] },
+    { href: '/inventario', label: 'Inventario Global', icon: ClipboardList, roles: ['manager', 'admin', 'auditor'] },
+    { href: '/requisiciones', label: 'Pedir Insumos', icon: ClipboardList, roles: ['manager', 'cocina', 'barra'] },
+    { href: '/recetas', label: 'Fichas Técnicas', icon: ClipboardList, roles: ['manager', 'admin', 'auditor'] },
+    { href: '/compras', label: 'Compras / POs', icon: ClipboardList, roles: ['manager', 'admin', 'auditor'] },
+    { href: '/mermas', label: 'Registro Mermas', icon: Trash2, roles: ['manager', 'admin', 'cocina', 'barra'] },
+    { href: '/staff', label: 'Personal (HR)', icon: Users, roles: ['manager', 'admin'] },
+    { href: '/config', label: 'Configuración', icon: Settings, roles: ['manager', 'admin'] },
   ];
 
   // Filtramos por rol

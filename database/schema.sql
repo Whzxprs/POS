@@ -1,5 +1,5 @@
 -- SPV POS Intelligence - Supabase Schema
--- Este archivo contiene la estructura base para ejecutar en el SQL Editor de Supabase.
+-- Archivo actualizado para usar login por PIN (sin depender de auth.users estrictamente)
 
 -- 1. EXTENSIONES
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -8,10 +8,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Tabla de Personal (Staff)
 CREATE TABLE IF NOT EXISTS public.profiles (
-  id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('manager', 'mesero', 'cocina', 'barra', 'auditor', 'admin')),
-  pin_code TEXT UNIQUE, -- PIN de 4-6 dígitos para inicio de sesión rápido en tablets
+  role TEXT NOT NULL CHECK (role IN ('manager', 'capitan', 'mesero', 'cocina', 'barra', 'auditor', 'admin')),
+  pin_code TEXT UNIQUE, -- PIN de 4 dígitos para inicio de sesión rápido en tablets
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS public.tables (
   capacity INTEGER NOT NULL DEFAULT 4,
   status TEXT DEFAULT 'available' CHECK (status IN ('available', 'occupied', 'dirty')),
   current_order_id UUID, -- Referencia a la orden activa
+  grid_index INTEGER, -- Posición en el editor (0-79)
+  server_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL, -- Mesero asignado a la mesa
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -73,12 +75,10 @@ ALTER TABLE public.inventory_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.orders ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.order_items ENABLE ROW LEVEL SECURITY;
 
--- Políticas base: Los usuarios autenticados (meseros/managers) pueden leer y modificar datos operativos
-CREATE POLICY "Enable read/write for authenticated users" ON public.profiles FOR ALL TO authenticated USING (true);
-CREATE POLICY "Enable read/write for authenticated users" ON public.tables FOR ALL TO authenticated USING (true);
-CREATE POLICY "Enable read/write for authenticated users" ON public.inventory_items FOR ALL TO authenticated USING (true);
-CREATE POLICY "Enable read/write for authenticated users" ON public.orders FOR ALL TO authenticated USING (true);
-CREATE POLICY "Enable read/write for authenticated users" ON public.order_items FOR ALL TO authenticated USING (true);
-
--- 4. TRIGGERS Y FUNCIONES (Automatización)
--- (Opcional) Trigger para actualizar el timestamp `updated_at` en tablas si se requiere.
+-- Políticas base: Permitimos lectura y escritura a las operaciones del POS
+-- (El acceso lo controla la UI con el PIN ingresado)
+CREATE POLICY "Enable read/write for all users" ON public.profiles FOR ALL USING (true);
+CREATE POLICY "Enable read/write for all users" ON public.tables FOR ALL USING (true);
+CREATE POLICY "Enable read/write for all users" ON public.inventory_items FOR ALL USING (true);
+CREATE POLICY "Enable read/write for all users" ON public.orders FOR ALL USING (true);
+CREATE POLICY "Enable read/write for all users" ON public.order_items FOR ALL USING (true);

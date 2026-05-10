@@ -7,81 +7,26 @@ import { Clock, Users, Utensils, Wine, Clock4, AlertCircle, Receipt } from 'luci
 import { OrderBuilder } from './OrderBuilder';
 import { CheckoutModal } from './CheckoutModal';
 import { useAuth } from '../../context/AuthContext';
+import { supabase } from '../../lib/supabase';
 
-// Mock Data Inicial
 const MOCK_RESERVATIONS = [
   { id: 1, name: 'Familia Pérez', time: '20:00', pax: 4, allergies: ['Mariscos'] },
   { id: 2, name: 'Cena Empresa', time: '20:30', pax: 12, allergies: [] },
-  { id: 3, name: 'Aniversario D.', time: '21:00', pax: 2, allergies: ['Gluten'] },
-];
-
-const MOCK_TABLES = [
-  { 
-    id: 1, 
-    number: 12, 
-    name: 'Familia Pérez', 
-    pax: 4, 
-    amount: 1450.50, 
-    status: 'yellow', 
-    foodItems: 3, 
-    drinkItems: 1, 
-    timer: 15,
-    needsAttention: false,
-    serverId: 'u3' 
-  },
-  { 
-    id: 2, 
-    number: 5, 
-    name: 'Mesa 5', 
-    pax: 2, 
-    amount: 320.00, 
-    status: 'green', 
-    foodItems: 2, 
-    drinkItems: 2, 
-    timer: 2,
-    needsAttention: false,
-    serverId: 'u4'
-  },
-  { 
-    id: 3, 
-    number: 8, 
-    name: 'VIP - Gómez', 
-    pax: 6, 
-    amount: 5800.00, 
-    status: 'yellow', 
-    foodItems: 5, 
-    drinkItems: 4, 
-    timer: 35, 
-    needsAttention: true,
-    serverId: 'u3'
-  },
-  { 
-    id: 4, 
-    number: 15, 
-    name: 'Terraza 1', 
-    pax: 3, 
-    amount: 950.00, 
-    status: 'gray', 
-    foodItems: 0, 
-    drinkItems: 0, 
-    timer: 45,
-    needsAttention: false,
-    serverId: 'u4'
-  },
 ];
 
 export interface TableData {
-  id: number;
+  id: string; // uuid
   number: number;
   name: string;
   pax: number;
   amount: number;
-  status: string;
+  status: string; // 'available', 'occupied', etc.
   foodItems: number;
   drinkItems: number;
   timer: number;
   needsAttention: boolean;
   serverId?: string;
+  orderId?: string;
 }
 
 export const FloorDashboard = () => {
@@ -89,10 +34,12 @@ export const FloorDashboard = () => {
   const { isConnected } = useSocket('piso');
   const [currentTime, setCurrentTime] = useState<string>('00:00');
   const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<TableData | null>(null);
   const [checkoutTable, setCheckoutTable] = useState<TableData | null>(null);
+  
+  const [tables, setTables] = useState<TableData[]>([]);
 
   useEffect(() => {
-    // Actualizador simple de reloj
     const timer = setInterval(() => {
       const now = new Date();
       setCurrentTime(now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }));
@@ -100,19 +47,81 @@ export const FloorDashboard = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Filtrar mesas si es mesero
-  const visibleTables = user?.role === 'mesero' 
-    ? MOCK_TABLES.filter(t => t.serverId === user.id)
-    : MOCK_TABLES;
+  const fetchDashboardData = async () => {
+    const { data: tablesData, error: tablesError } = await supabase.from('tables').select('*');
+    const { data: ordersData } = await supabase.from('orders').select('*').eq('status', 'open');
+    
+    if (tablesData) {
+      const combined = tablesData.map(t => {
+        // Find active order for this table
+        const activeOrder = ordersData?.find(o => o.table_id === t.id);
+        
+        return {
+          id: t.id,
+          number: t.number,
+          name: t.name || `Mesa ${t.number}`,
+          pax: activeOrder ? activeOrder.pax : t.capacity,
+          amount: activeOrder ? Number(activeOrder.total_amount) : 0,
+          status: activeOrder ? 'occupied' : t.status,
+          foodItems: 0, // Podríamos hacer un join con order_items
+          drinkItems: 0,
+          timer: activeOrder ? Math.floor((new Date().getTime() - new Date(activeOrder.opened_at).getTime()) / 60000) : 0,
+          needsAttention: false,
+          serverId: t.server_id,
+          orderId: activeOrder?.id
+        };
+      });
+      // Sort by number
+      combined.sort((a, b) => a.number - b.number);
+      setTables(combined);
+    }
+  };
 
-  const isManagerOrCapitan = user?.role === 'manager' || user?.role === 'capitan';
+  useEffect(() => {
+    fetchDashboardData();
+    // Suscribirse a cambios en realtime
+    const channel = supabase.channel('dashboard_updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tables' }, fetchDashboardData)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchDashboardData)
+      .subscribe();
+      
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  const visibleTables = user?.role === 'mesero' 
+    ? tables.filter(t => t.serverId === user.id)
+    : tables;
+
+  const isManagerOrCapitan = user?.role === 'manager' || user?.role === 'capitan' || user?.role === 'admin';
+
+  const handleOpenTable = async (table: TableData) => {
+    if (table.status === 'available' || !table.orderId) {
+      // Create order
+      const { data, error } = await supabase.from('orders').insert({
+        table_id: table.id,
+        server_id: user?.id,
+        pax: table.pax,
+        total_amount: 0,
+        status: 'open'
+      }).select().single();
+      
+      if (data) {
+        await supabase.from('tables').update({ status: 'occupied', current_order_id: data.id }).eq('id', table.id);
+        setSelectedTable({ ...table, orderId: data.id });
+        setIsBuilderOpen(true);
+      }
+    } else {
+      setSelectedTable(table);
+      setIsBuilderOpen(true);
+    }
+  };
 
   return (
     <div className={styles.dashboard}>
-      {/* Top Widgets Section - Solo para Managers y Capitanes */}
       {isManagerOrCapitan && (
         <section className={styles.topSection}>
-          {/* Widget 1: Reloj de Apertura / Estado */}
         <div className={styles.widget}>
           <div className={styles.widgetHeader}>
             <span className={styles.widgetTitle}>Servicio Actual</span>
@@ -120,11 +129,10 @@ export const FloorDashboard = () => {
           </div>
           <div className={styles.clockDisplay}>{currentTime}</div>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
-            {isConnected ? '🟢 Conectado (Tiempo Real)' : '🔴 Desconectado'}
+            {isConnected ? '🟢 Sockets Activos' : '🟡 Supabase Realtime'}
           </p>
         </div>
 
-        {/* Widget 2: Reservaciones OpenTable */}
         <div className={styles.widget}>
           <div className={styles.widgetHeader}>
             <span className={styles.widgetTitle}>Próximas Reservaciones</span>
@@ -143,7 +151,6 @@ export const FloorDashboard = () => {
           </div>
         </div>
 
-        {/* Widget 3: Tareas Kanban */}
         <div className={styles.widget}>
           <div className={styles.widgetHeader}>
             <span className={styles.widgetTitle}>Pendientes (Manager)</span>
@@ -153,22 +160,16 @@ export const FloorDashboard = () => {
               <div className={styles.taskCheckbox}></div>
               <span className={styles.taskText}>Revisar montaje de terraza</span>
             </div>
-            <div className={styles.taskItem}>
-              <div className={styles.taskCheckbox}></div>
-              <span className={styles.taskText}>Reporte de rotura de cristalería</span>
-            </div>
           </div>
         </div>
       </section>
     )}
 
-      {/* Floor Section: Mesas */}
       <section className={styles.floorSection}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h2 className={styles.sectionTitle}>
             {user?.role === 'mesero' ? `Mis Mesas (${user.name})` : 'Planta Principal'}
           </h2>
-          {/* Aquí irían filtros: Todas, Mis Mesas, Libres */}
         </div>
         
         <div className={styles.tableGrid}>
@@ -176,17 +177,16 @@ export const FloorDashboard = () => {
             <div 
               key={table.id} 
               className={styles.tableCard}
-              onClick={() => setIsBuilderOpen(true)}
+              onClick={() => handleOpenTable(table)}
+              style={{ opacity: table.status === 'available' ? 0.7 : 1 }}
             >
-              {/* Border Status Indicator */}
               <div className={`${styles.statusBorder} ${
-                table.status === 'yellow' ? styles.borderYellow : 
-                table.status === 'green' ? styles.borderGreen : styles.borderGray
+                table.status === 'occupied' ? styles.borderYellow : styles.borderGray
               }`} />
 
               <div className={styles.tableHeader}>
                 <span className={styles.tableName}>{table.name}</span>
-                <span className={styles.tableInfo}><Users size={14} /> {table.pax} (M-{table.number})</span>
+                <span className={styles.tableInfo}><Users size={14} /> {table.pax}</span>
               </div>
 
               <div className={styles.tableAmount}>
@@ -195,17 +195,10 @@ export const FloorDashboard = () => {
                   <button 
                     onClick={(e) => { e.stopPropagation(); setCheckoutTable(table); }}
                     style={{
-                      marginLeft: '1rem',
-                      padding: '0.4rem 0.8rem',
-                      fontSize: '0.8rem',
-                      borderRadius: 'var(--radius-md)',
-                      border: 'none',
-                      background: 'var(--accent-success)',
-                      color: 'white',
-                      cursor: 'pointer',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.4rem'
+                      marginLeft: '1rem', padding: '0.4rem 0.8rem', fontSize: '0.8rem',
+                      borderRadius: 'var(--radius-md)', border: 'none',
+                      background: 'var(--accent-success)', color: 'white', cursor: 'pointer',
+                      display: 'inline-flex', alignItems: 'center', gap: '0.4rem'
                     }}
                   >
                     <Receipt size={14} /> Cobrar
@@ -215,23 +208,18 @@ export const FloorDashboard = () => {
 
               <div className={styles.tableProgress}>
                 <div className={styles.itemsIndicator}>
-                  {table.foodItems > 0 && (
-                    <div className={`${styles.itemBadge} ${
-                      table.status === 'yellow' ? styles.statusYellow :
-                      table.status === 'green' ? styles.statusGreen : styles.statusGray
-                    }`}>
-                      <Utensils size={14} /> {table.foodItems}
+                  {table.status === 'occupied' ? (
+                    <div className={`${styles.itemBadge} ${styles.statusYellow}`}>
+                      Activa
                     </div>
-                  )}
-                  {table.drinkItems > 0 && (
+                  ) : (
                     <div className={`${styles.itemBadge} ${styles.statusGray}`}>
-                      <Wine size={14} /> {table.drinkItems}
+                      Libre
                     </div>
                   )}
                 </div>
 
-                <div className={`${styles.timer} ${table.needsAttention ? styles.timerWarning : ''}`}>
-                  {table.needsAttention && <AlertCircle size={14} color="var(--accent-danger)" />}
+                <div className={styles.timer}>
                   <Clock4 size={14} /> {table.timer}m
                 </div>
               </div>
@@ -240,10 +228,12 @@ export const FloorDashboard = () => {
         </div>
       </section>
 
-      {/* Slide-over Constructor de Pedidos */}
-      <OrderBuilder isOpen={isBuilderOpen} onClose={() => setIsBuilderOpen(false)} />
+      <OrderBuilder 
+        isOpen={isBuilderOpen} 
+        onClose={() => setIsBuilderOpen(false)} 
+        table={selectedTable}
+      />
       
-      {/* Modal de Cobro */}
       <CheckoutModal 
         isOpen={!!checkoutTable} 
         onClose={() => setCheckoutTable(null)} 
